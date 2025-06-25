@@ -9,7 +9,7 @@ const server = http.createServer(app);
 // Configure CORS for Socket.IO
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+    origin: ["http://localhost:3000", "http://127.0.0.1:3000", "http://192.168.1.20:3000"],
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -17,7 +17,7 @@ const io = socketIo(server, {
 
 // Enable CORS for Express
 app.use(cors({
-  origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+  origin: ["http://localhost:3000", "http://127.0.0.1:3000", "http://192.168.1.20:3000"],
   credentials: true
 }));
 
@@ -26,6 +26,7 @@ app.use(express.json());
 // Store room information
 const rooms = new Map();
 const participants = new Map();
+const roomAdmins = new Map();
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -47,28 +48,27 @@ io.on('connection', (socket) => {
     // Join the new room
     socket.join(roomId);
     
-    // Store participant info
+    // Initialize room if it doesn't exist and set first user as admin
+    if (!rooms.has(roomId)) {
+      rooms.set(roomId, new Set());
+      roomAdmins.set(roomId, socket.id);
+    }
+    
+    // Store participant info with admin status
+    const isAdmin = roomAdmins.get(roomId) === socket.id;
     participants.set(socket.id, {
       participantId,
       participantName,
       roomId,
-      socketId: socket.id
+      socketId: socket.id,
+      isAdmin
     });
-    
-    // Initialize room if it doesn't exist
-    if (!rooms.has(roomId)) {
-      rooms.set(roomId, new Set());
-    }
     
     // Add participant to room
     rooms.get(roomId).add(socket.id);
     
-    // Notify others in the room
-    socket.to(roomId).emit('participant-joined', {
-      participantId,
-      participantName,
-      socketId: socket.id
-    });
+    // Notify others in the room that a new user joined
+    socket.to(roomId).emit('user-joined', socket.id);
     
     // Send current participants to the new user
     const currentParticipants = [];
@@ -78,12 +78,16 @@ io.on('connection', (socket) => {
         currentParticipants.push({
           participantId: participant.participantId,
           participantName: participant.participantName,
-          socketId: socketId
+          socketId: socketId,
+          isAdmin: participant.isAdmin
         });
       }
     });
     
-    socket.emit('room-participants', currentParticipants);
+    socket.emit('room-participants', {
+      participants: currentParticipants,
+      isAdmin
+    });
     
     console.log(`Room ${roomId} now has ${rooms.get(roomId).size} participants`);
   });
@@ -93,44 +97,39 @@ io.on('connection', (socket) => {
     handleLeaveRoom(socket);
   });
 
-  // WebRTC signaling
-  socket.on('webrtc-offer', (data) => {
-    const { targetSocketId, offer } = data;
+  // WebRTC signaling - Updated to match frontend event names
+  socket.on('offer', (data) => {
+    const { to, offer, room } = data;
     const sender = participants.get(socket.id);
     
     if (sender) {
-      socket.to(targetSocketId).emit('webrtc-offer', {
+      socket.to(to).emit('offer', {
         offer,
-        fromSocketId: socket.id,
-        fromParticipantId: sender.participantId,
-        fromParticipantName: sender.participantName
+        from: socket.id
       });
     }
   });
 
-  socket.on('webrtc-answer', (data) => {
-    const { targetSocketId, answer } = data;
+  socket.on('answer', (data) => {
+    const { to, answer, room } = data;
     const sender = participants.get(socket.id);
     
     if (sender) {
-      socket.to(targetSocketId).emit('webrtc-answer', {
+      socket.to(to).emit('answer', {
         answer,
-        fromSocketId: socket.id,
-        fromParticipantId: sender.participantId,
-        fromParticipantName: sender.participantName
+        from: socket.id
       });
     }
   });
 
-  socket.on('webrtc-ice-candidate', (data) => {
-    const { targetSocketId, candidate } = data;
+  socket.on('ice-candidate', (data) => {
+    const { to, candidate, room } = data;
     const sender = participants.get(socket.id);
     
     if (sender) {
-      socket.to(targetSocketId).emit('webrtc-ice-candidate', {
+      socket.to(to).emit('ice-candidate', {
         candidate,
-        fromSocketId: socket.id,
-        fromParticipantId: sender.participantId
+        from: socket.id
       });
     }
   });
@@ -151,18 +150,31 @@ io.on('connection', (socket) => {
       if (rooms.has(roomId)) {
         rooms.get(roomId).delete(socket.id);
         
+        // If admin leaves and room still has participants, assign new admin
+        if (roomAdmins.get(roomId) === socket.id && rooms.get(roomId).size > 0) {
+          const newAdminSocketId = Array.from(rooms.get(roomId))[0];
+          roomAdmins.set(roomId, newAdminSocketId);
+          
+          // Update new admin's participant info
+          if (participants.has(newAdminSocketId)) {
+            const newAdmin = participants.get(newAdminSocketId);
+            newAdmin.isAdmin = true;
+            participants.set(newAdminSocketId, newAdmin);
+            
+            // Notify the new admin
+            socket.to(newAdminSocketId).emit('admin-promoted');
+          }
+        }
+        
         // Clean up empty rooms
         if (rooms.get(roomId).size === 0) {
           rooms.delete(roomId);
+          roomAdmins.delete(roomId);
         }
       }
       
       // Notify others in the room
-      socket.to(roomId).emit('participant-left', {
-        participantId,
-        participantName,
-        socketId: socket.id
-      });
+      socket.to(roomId).emit('user-left', socket.id);
       
       // Remove participant
       participants.delete(socket.id);

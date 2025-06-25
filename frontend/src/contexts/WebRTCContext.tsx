@@ -11,6 +11,7 @@ interface WebRTCContextType {
   localStream: MediaStream | null
   peers: Map<string, Peer>
   isStreaming: boolean
+  isAdmin: boolean // Add this
   startStream: () => Promise<void>
   stopStream: () => void
   joinRoom: (roomId: string, participantName?: string) => void
@@ -43,6 +44,7 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({ children }) => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [peers, setPeers] = useState<Map<string, Peer>>(new Map())
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false) // Add this
   const [currentRoom, setCurrentRoom] = useState<string | null>(null)
   const currentParticipant = useRef<{ id: string; name: string } | null>(null)
 
@@ -219,7 +221,19 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({ children }) => {
       })
     }
 
+    const handleRoomParticipants = (data: { participants: any[], isAdmin: boolean }) => {
+      setIsAdmin(data.isAdmin)
+      // Handle participants list if needed
+    }
+
+    const handleAdminPromoted = () => {
+      setIsAdmin(true)
+      console.log('You have been promoted to admin')
+    }
+
     // Add event listeners
+    socket.on('room-participants', handleRoomParticipants)
+    socket.on('admin-promoted', handleAdminPromoted)
     socket.on('user-joined', handleUserJoined)
     socket.on('offer', handleOffer)
     socket.on('answer', handleAnswer)
@@ -228,6 +242,8 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({ children }) => {
 
     // Cleanup function
     return () => {
+      socket.off('room-participants', handleRoomParticipants)
+      socket.off('admin-promoted', handleAdminPromoted)
       socket.off('user-joined', handleUserJoined)
       socket.off('offer', handleOffer)
       socket.off('answer', handleAnswer)
@@ -291,6 +307,7 @@ export const WebRTCProvider: React.FC<WebRTCProviderProps> = ({ children }) => {
       localStream,
       peers,
       isStreaming,
+      isAdmin, // Add this
       startStream,
       stopStream,
       joinRoom,

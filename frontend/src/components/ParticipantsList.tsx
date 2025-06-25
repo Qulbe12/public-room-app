@@ -9,12 +9,14 @@ interface Peer {
 interface ParticipantsListProps {
   peers: Map<string, Peer>
   localStream: MediaStream | null
+  isAdmin: boolean // Add this
   onClose: () => void
 }
 
 const ParticipantsList: React.FC<ParticipantsListProps> = ({
   peers,
   localStream,
+  isAdmin, // Add this
   onClose
 }) => {
   const peerArray = Array.from(peers.values())
@@ -58,9 +60,11 @@ const ParticipantsList: React.FC<ParticipantsListProps> = ({
           <div className="flex-1">
             <div className="flex items-center space-x-2">
               <span className="text-white font-medium">You</span>
-              <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded">
-                Host
-              </span>
+              {isAdmin && (
+                <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded">
+                  Admin
+                </span>
+              )}
             </div>
             <div className="flex items-center space-x-2 mt-1">
               <div className={`flex items-center space-x-1 text-xs ${

@@ -14,6 +14,7 @@ const PublicRoom: React.FC = () => {
     localStream,
     peers,
     isStreaming,
+    isAdmin, // Add this
     startStream,
     stopStream,
     joinRoom,
@@ -274,6 +275,7 @@ const PublicRoom: React.FC = () => {
             <ParticipantsList
               peers={peers}
               localStream={localStream}
+              isAdmin={isAdmin} // Add this
               onClose={() => setShowParticipants(false)}
             />
           </div>
